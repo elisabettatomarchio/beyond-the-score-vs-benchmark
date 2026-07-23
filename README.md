@@ -41,7 +41,7 @@ The three scripts are meant to be run in sequence, one target at a time (AChE, E
 - `scikit-learn`
 - `tqdm`
 
-*(A pinned `requirements.txt`/`environment.yml` is recommended before the final submission — see "To do" below.)*
+
 
 ## Expected folder structure for `align_results.py`
 
