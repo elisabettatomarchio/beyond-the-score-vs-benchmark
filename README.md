@@ -1,4 +1,4 @@
-## Beyond the Score: Benchmarking Virtual Screening Integration Strategies for Balancing Recall and Precision in Early Drug Discovery
+## Beyond the Score: Fixed-Budget Benchmarking of Virtual Screening Integration Strategies for Decision-Centric Drug Discovery
 
 Elisabetta Grazia Tomarchio, Rocco Buccheri, Antonio Rescifina
 
@@ -6,9 +6,9 @@ Code and data for benchmarking virtual screening integration strategies, submitt
 
 ## Overview
 
-This repository contains the full open-source pipeline used to benchmark twenty virtual screening (VS) integration strategies, combining three complementary methods — molecular docking, maximum common substructure (MCS) similarity, and a machine-learning QSAR (ML-QSAR) classifier — across five pharmacologically diverse protein targets (AChE, EGFR, hERG, HIV-1 protease, PPARγ).
+This repository contains the the reproducible computational analysis pipeline used to benchmark twenty virtual screening (VS) integration strategies, combining three complementary methods — molecular docking, maximum common substructure (MCS) similarity, and a machine-learning QSAR (ML-QSAR) classifier — across five pharmacologically diverse protein targets (AChE, EGFR, hERG, HIV-1 protease, PPARγ).
 
-All twenty strategies (single methods, union, intersection, rank-based consensus, and two/three-stage sequential funnels) are compared under an **identical experimental budget** at each screening fraction (1%, 5%, 10% of the library), so that recall and precision differences reflect the intrinsic effectiveness of each strategy rather than differences in candidate-list size.
+All twenty strategies (individual methods, best-rank and worst-rank fusion, mean-rank consensus, and sequential funnels) are compared under an **identical experimental budget** at each screening fraction (1%, 5%, 10% of the library), so that recall and precision differences reflect the intrinsic effectiveness of each strategy rather than differences in candidate-list size.
 
 ## Repository contents
 
@@ -61,7 +61,7 @@ project_folder/
 
 If you use this code or data, please cite:
 
-> Tomarchio, E.G., Buccheri, R., Rescifina, A. *Beyond the Score: Benchmarking Virtual Screening Integration Strategies for Balancing Recall and Precision in Early Drug Discovery.* Int. J. Mol. Sci., submitted.
+> Tomarchio, E.G., Buccheri, R., Rescifina, A. *Beyond the Score: Fixed-Budget Benchmarking of Virtual Screening Integration Strategies for Decision-Centric Drug Discovery.* Int. J. Mol. Sci., submitted.
 
 *(DOI to be added upon publication.)*
 
