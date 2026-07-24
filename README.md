@@ -35,11 +35,10 @@ The three scripts are meant to be run in sequence, one target at a time (AChE, E
 
 ## Requirements
 
-- Python ≥ 3.9
-- `rdkit`
-- `pandas`, `numpy`
-- `scikit-learn`
-- `tqdm`
+numpy==1.26.4
+pandas==2.3.3
+scikit-learn==1.7.2
+joblib==1.4.2
 
 
 
