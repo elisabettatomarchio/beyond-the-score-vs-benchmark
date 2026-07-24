@@ -47,7 +47,7 @@ def dedupe_with_label_check(df, label_col, source_name, qc_log):
     and decoy) it is dropped entirely and logged in the QC log, instead of
     arbitrarily keeping "the first occurrence"."""
     if label_col not in df.columns:
-        # File with no label column (e.g. MCS, QSAR): simple dedup, but flag score conflicts
+        # File with no label column (e.g. MCS, QSAR)
         dup_mask = df.duplicated(subset=['smiles'], keep=False)
         if dup_mask.any():
             qc_log.append({
@@ -79,18 +79,12 @@ def calculate_metrics(selected_mask, true_labels, actives_denominator):
     return recall, precision, true_positives, total_selected
 
 
-# --------------------------------------------------------------------------
-# [FIX 5] Fixed-budget selection: every function returns EXACTLY B indices
-# (unless B exceeds N, which does not happen for f <= 0.10).
-# The tie-break is deterministic (mergesort = stable sort, preserves the
-# original file order in case of ties), so results are reproducible.
-# --------------------------------------------------------------------------
 
 def top_b_by_score(score, B, ascending=False):
-    """Returns the (positional) indices of the best B elements of `score`."""
-    order = np.argsort(score, kind='mergesort')
-    if not ascending:
-        order = order[::-1]
+    """Returns the (positional) indices of the best B elements of `score`.
+    Ties are broken deterministically by original array order (first
+    occurrence wins), for both ascending and descending selection."""
+    order = np.argsort(score if ascending else -score, kind='mergesort')
     return order[:B]
 
 
@@ -114,7 +108,7 @@ def rank_min(score):
 
 
 def sequential_funnel(scores_stage_order, B, prefilter_sizes, N):
-    """[FIX 4] True sequential funnel: at each stage, the library (or the
+    """ Sequential funnel: at each stage, the library (or the
     survivors from the previous stage) is PRE-FILTERED based on the score of
     the current stage, then the next stage RECOMPUTES its own ranking ONLY on
     the survivors (not on the entire library).
@@ -211,7 +205,7 @@ def build_ultimate_statistical_pipeline(base_dir):
         print(f"   Rows before merge -> Docking: {len(df_dock_clean)} | "
               f"MCS: {len(df_mcs_clean)} | QSAR: {len(df_qsar_clean)}")
 
-        # 3. MERGE (inner join on SMILES) with explicit diagnostics [FIX 1]
+        # 3. MERGE (inner join on SMILES) with explicit diagnostics 
         df_merged = pd.merge(df_dock_clean, df_mcs_clean, on='smiles', how='inner')
         df_merged = pd.merge(df_merged, df_qsar_clean, on='smiles', how='inner')
 
@@ -253,9 +247,9 @@ def build_ultimate_statistical_pipeline(base_dir):
         rank_mcs = rank_min(score_mcs)
         rank_dock = rank_min(score_dock)
 
-        # 4. Metrics for the 3 cutoffs x 20 strategies, all at fixed budget B [FIX 5]
+        # 4. Metrics for the 3 cutoffs x 20 strategies, all at fixed budget B 
         for c_val, c_lbl in zip(cutoffs, cutoff_labels):
-            B = max(1, int(N_total * c_val))  # k = floor(f*N), as defined in the manuscript
+            B = max(1, int(N_total * c_val))  # k = floor(f*N)
 
             selections = {}
 
@@ -264,23 +258,31 @@ def build_ultimate_statistical_pipeline(base_dir):
             selections['Single MCS'] = top_b_by_score(score_mcs, B)
             selections['Single Docking'] = top_b_by_score(score_dock, B)
 
-            # --- Union: combined score = MINIMUM rank (best in at least one method) ---
-            selections['Parallelism (QSAR U MCS)'] = top_b_by_score(
+            # --- Rank-fusion strategies -------------------------------------------------
+            # Because every strategy must return exactly B compounds, these are rank-fusion operators that emulate an OR-like
+            # or AND-like combination while keeping the selected-set size fixed.
+            #   - "Best-rank fusion" (OR-like): combined score = MINIMUM rank across the
+            #     constituent methods (a compound only needs to rank well in ONE method).
+            #   - "Worst-rank fusion" (AND-like): combined score = MAXIMUM rank across the
+            #     constituent methods (a compound must rank well in ALL methods).
+            # These replace the previous "Parallelism (union)" / "Synergy (intersection)"
+            # naming and the U / X placeholder symbols, per the terminology correction.
+            # ------------------------------------------------------------------------------
+            selections['Best-Rank Fusion (QSAR-MCS)'] = top_b_by_score(
                 np.minimum(rank_qsar, rank_mcs), B, ascending=True)
-            selections['Parallelism (Union 3M)'] = top_b_by_score(
+            selections['Best-Rank Fusion (3-Method)'] = top_b_by_score(
                 np.minimum(np.minimum(rank_qsar, rank_mcs), rank_dock), B, ascending=True)
 
-            # --- Intersection: combined score = MAXIMUM rank (good in every method) ---
-            selections['Synergy (QSAR X MCS)'] = top_b_by_score(
+            selections['Worst-Rank Fusion (QSAR-MCS)'] = top_b_by_score(
                 np.maximum(rank_qsar, rank_mcs), B, ascending=True)
-            selections['Synergy (Intersection 3M)'] = top_b_by_score(
+            selections['Worst-Rank Fusion (3-Method)'] = top_b_by_score(
                 np.maximum(np.maximum(rank_qsar, rank_mcs), rank_dock), B, ascending=True)
 
             # --- Consensus: average of ranks ---
             mean_rank = (rank_qsar + rank_mcs + rank_dock) / 3.0
             selections['Consensus (Mean Rank 3M)'] = top_b_by_score(mean_rank, B, ascending=True)
 
-            # --- Two-stage sequential funnels: true re-ranking on survivors [FIX 4] ---
+            # --- Two-stage sequential funnels: true re-ranking on survivors  ---
             P2 = PREFILTER_MULTIPLIER_2STAGE * B
             two_stage_pairs = [
                 ('Sequential (QSAR -> MCS)', score_qsar, score_mcs),
@@ -294,7 +296,7 @@ def build_ultimate_statistical_pipeline(base_dir):
                 selections[name] = sequential_funnel(
                     [score_a, score_b], B, prefilter_sizes=[P2], N=N_total)
 
-            # --- Three-stage sequential funnels: true cascading re-ranking [FIX 4] ---
+            # --- Three-stage sequential funnels: true cascading re-ranking  ---
             P3_1 = PREFILTER_MULTIPLIER_3STAGE_1 * B
             P3_2 = PREFILTER_MULTIPLIER_3STAGE_2 * B
             three_stage_triples = [
@@ -367,5 +369,5 @@ def build_ultimate_statistical_pipeline(base_dir):
 
 
 if __name__ == "__main__":
-    project_folder = "/Users/elisabettatomarchio/Desktop/nuovo_progetto"  # update with your folder
+    project_folder = "/Users/your_path"  # update with your folder
     build_ultimate_statistical_pipeline(project_folder)
