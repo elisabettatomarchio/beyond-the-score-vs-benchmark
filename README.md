@@ -132,10 +132,11 @@ Molecular docking (GNINA 1.3.2), protein preparation (YASARA 25.1.13), ligand pr
 If you use this code or data, please cite:
 
 > Tomarchio, E.G., Buccheri, R., Rescifina, A. *Beyond the Score: Fixed-Budget Benchmarking of Virtual Screening Integration Strategies for Decision-Centric Drug Discovery.* Int. J. Mol. Sci., submitted.
+> *(DOI to be added upon publication.)*
 
-Zenodo: https://doi.org/10.5281/zenodo.21645345
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.21645344.svg)](https://doi.org/10.5281/zenodo.21645344)
 
-*(DOI to be added upon publication.)*
+This repository is archived on Zenodo: [10.5281/zenodo.21645344](https://doi.org/10.5281/zenodo.21645344)
 
 The bioactivity data underlying the deposited datasets are derived from ChEMBL (release 36, https://www.ebi.ac.uk/chembl), which should be cited alongside this work.
 
