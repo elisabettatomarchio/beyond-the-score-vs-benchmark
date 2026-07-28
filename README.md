@@ -28,8 +28,8 @@ The three scripts are meant to be run in sequence, one target at a time (AChE, E
 1. **`process_pipeline.ipynb`** — starting from ChEMBL bioactivity data, curates the actives, generates decoys with LUDe, builds the training/test/VS sets, computes ECFP4 fingerprints, trains and calibrates the ML-QSAR classifier, and scores the VS library, producing `VS_QSAR_predictions.csv` (QSAR probability per compound) and the labelled train/test sets used by `MCS_analysis.py`.
 2. **`MCS_analysis.py`** — takes the same train/test/VS SMILES sets, clusters the training actives to obtain representative query scaffolds, calibrates thresholds on the test set, and scores the VS library by MCS similarity, producing the `consensus_max_score` per compound used downstream.
 3. **`align_results.py`** — merges the docking, MCS, and QSAR scores for each target on a common set of aligned molecules, runs QC checks (expects exactly 50 confirmed actives per target after merging), and computes recall/precision for all 20 strategies at the 1%, 5%, and 10% cutoffs under matched experimental budget, producing:
-   - `SINGLE_TARGET_PERFORMANCE_3M.csv` — raw per-target results
-   - `FINAL_STATISTICAL_VALIDATION_3M.csv` — mean ± SD across the five targets
+   - `SINGLE_TARGET_PERFORMANCE_3M.csv` — raw per-target results. 3M stands for the three individual methods benchmarked in this work (docking, MCS similarity, and ML-QSAR).
+   - `FINAL_STATISTICAL_VALIDATION_3M.csv` — mean ± SD across the five targets. 3M stands for the three individual methods benchmarked in this work (docking, MCS similarity, and ML-QSAR).
    - `QC_REPORT.csv` — merge diagnostics and data-integrity checks
 
 > **Note:** molecular docking itself (pose generation and CNN scoring via GNINA) is performed upstream of this repository; `align_results.py` expects its output as a per-target `Enrichment_<TARGET>.csv` file (SMILES, `CNN_VS` score, experimental activity label).
