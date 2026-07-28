@@ -133,6 +133,8 @@ If you use this code or data, please cite:
 
 > Tomarchio, E.G., Buccheri, R., Rescifina, A. *Beyond the Score: Fixed-Budget Benchmarking of Virtual Screening Integration Strategies for Decision-Centric Drug Discovery.* Int. J. Mol. Sci., submitted.
 
+Zenodo: https://doi.org/10.5281/zenodo.21645345
+
 *(DOI to be added upon publication.)*
 
 The bioactivity data underlying the deposited datasets are derived from ChEMBL (release 36, https://www.ebi.ac.uk/chembl), which should be cited alongside this work.
