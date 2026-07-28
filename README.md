@@ -20,7 +20,7 @@ The repository is self-contained: the curated training, test and virtual-screeni
 | `align_results.py` | Merges the docking (CNN score), MCS, and QSAR outputs per target, validates data integrity (QC checks on molecule/active counts after merging), computes recall/precision for all 20 integration strategies at fixed experimental budget, and runs the Friedman omnibus test across strategies, producing the final result tables. |
 | `xlsx_to_inputs.py` | Convenience script for readers starting from the journal's Supporting Information rather than from a clone of this repository: regenerates the three per-target input files required by `align_results.py` directly from the spreadsheet. |
 | `database` | This folder contains, for each of the five protein targets, the training, test, and virtual screening (VS) sets (SMILES and activity labels) used by `process_pipeline.ipynb` and `MCS_analysis.py`. |
-| `Beyond_the_Score_VS_results_SI_IJMS.xlsx` | Spreadsheet S1 of the published Supporting Information, deposited here unchanged: per-compound VS scores, target-level fixed-budget results, aggregated statistics, ML-QSAR/MCS validation metrics, Friedman Ominbus test of strategies comparison, QC report of the merge step. |
+| `Beyond_the_Score_VS_results_SI_IJMS.xlsx` | Spreadsheet S1 of the published Supporting Information, deposited here unchanged: per-compound VS scores, target-level fixed-budget results, aggregated statistics, ML-QSAR/MCS validation metrics, Friedman Omnibus test of strategies comparison, QC report of the merge step. |
 | `requirements.txt` | Python dependencies. |
 | `LICENSE` | MIT License (code). |
 | `LICENSE-DATA` | CC BY-SA 3.0 (datasets derived from ChEMBL). |
