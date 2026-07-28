@@ -6,7 +6,7 @@ Code and data for benchmarking virtual screening integration strategies, submitt
 
 ## Overview
 
-This repository contains the reproducible computational analysis pipeline used to benchmark twenty virtual screening (VS) integration strategies, combining three complementary methods — molecular docking, maximum common substructure (MCS) similarity, and a machine-learning QSAR (ML-QSAR) classifier — across five pharmacologically diverse protein targets (AChE, EGFR, hERG, HIV-1 protease, PPARγ).
+This repository contains the reproducible computational analysis pipeline used to benchmark twenty virtual screening (VS) integration strategies, combining three complementary methods — molecular docking, maximum common substructure (MCS) similarity, and a machine-learning QSAR (ML-QSAR) classifier — across five pharmacologically diverse protein targets (AChE, EGFR, hERG, HIV1-P, PPARγ).
 
 All twenty strategies (individual methods, best-rank and worst-rank fusion, mean-rank consensus, and sequential funnels) are compared under an **identical experimental budget** at each screening fraction (1%, 5%, 10% of the library), so that recall and precision differences reflect the intrinsic effectiveness of each strategy rather than differences in candidate-list size.
 
