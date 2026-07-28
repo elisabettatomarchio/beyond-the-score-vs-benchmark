@@ -3,6 +3,7 @@
 # Output:
 #  - SINGLE_TARGET_PERFORMANCE_3M.csv   (data per target/cutoff/strategy)
 # - FINAL_STATISTICAL_VALIDATION_3M.csv (mean ± SD for 5 target)
+#  - FRIEDMAN_OMNIBUS_3M.csv            (omnibus test across strategies, per cutoff)
 #  - QC_REPORT.csv                      (summary)
 
 import os
@@ -25,6 +26,14 @@ try:
 except ImportError:
     RDKIT_AVAILABLE = False
     print("RDKit not found. Falling back to plain string cleaning (strip only).")
+
+try:
+    from scipy.stats import friedmanchisquare
+    SCIPY_AVAILABLE = True
+except ImportError:
+    SCIPY_AVAILABLE = False
+    print("SciPy not found. The Friedman omnibus test will be skipped "
+          "(install with: pip install scipy).")
 
 
 def canonicalize_smiles(smiles_str):
@@ -128,6 +137,82 @@ def sequential_funnel(scores_stage_order, B, prefilter_sizes, N):
     last_score = scores_stage_order[-1][survivors]
     final_local = top_b_by_score(last_score, min(B, len(survivors)), ascending=False)
     return survivors[final_local]
+
+
+def run_friedman_omnibus(df_all, output_dir, cutoff_labels):
+    """Omnibus Friedman rank-sum test across the screening strategies, run
+    separately at every budget.
+
+    Blocks     = benchmark targets
+    Treatments = screening strategies
+    Response   = TP, the number of recovered actives (the fixed budget makes
+                 recall and precision monotonic transformations of TP, so the
+                 test is invariant to which of the three is used)
+
+    The test answers one question only: are the strategies all equivalent?
+    It is NOT a licence for pairwise claims. With a handful of targets the
+    chi-square approximation is asymptotic, and no post-hoc comparison is
+    attempted: the smallest two-sided p value reachable by a Wilcoxon
+    signed-rank test over n paired targets is 2^-(n-1), i.e. 0.0625 for n = 5,
+    so no pairwise contrast can ever reach alpha = 0.05 on this panel.
+    """
+    if not SCIPY_AVAILABLE:
+        print("Friedman omnibus test skipped: SciPy is not installed.\n")
+        return None
+
+    rows = []
+    print("Friedman omnibus test (blocks = targets, response = recovered actives)")
+
+    for c_lbl in cutoff_labels:
+        pivot = df_all[df_all['Cutoff'] == c_lbl].pivot_table(
+            index='Target', columns='Strategy', values='TP')
+        # A target missing any strategy would silently unbalance the design
+        n_incomplete = int(pivot.isna().any(axis=1).sum())
+        pivot = pivot.dropna(axis=0, how='any')
+        n_blocks, n_strategies = pivot.shape
+
+        if n_blocks < 3 or n_strategies < 3:
+            print(f"   {c_lbl}: skipped (targets={n_blocks}, strategies={n_strategies}; "
+                  "the test needs at least 3 of each).")
+            continue
+
+        chi2, p_value = friedmanchisquare(*[pivot[s].values for s in pivot.columns])
+
+        # rank 1 = largest TP count, tied strategies share the same rank
+        mean_rank = pivot.rank(axis=1, ascending=False, method='min').mean(axis=0)
+        best_strategy = mean_rank.idxmin()
+
+        note = ""
+        if n_incomplete:
+            note = f"{n_incomplete} target(s) dropped for incomplete strategy coverage; "
+        if n_blocks < 10:
+            note += (f"asymptotic approximation with only {n_blocks} blocks - "
+                     "read as a global heterogeneity check, not as pairwise evidence")
+
+        rows.append({
+            'Cutoff': c_lbl,
+            'N_targets': n_blocks,
+            'N_strategies': n_strategies,
+            'df': n_strategies - 1,
+            'Chi2': round(float(chi2), 3),
+            'p_value': float(p_value),
+            'Best_strategy_by_mean_rank': best_strategy,
+            'Best_mean_rank': round(float(mean_rank.min()), 3),
+            'Note': note.strip()
+        })
+
+        print(f"   {c_lbl}: chi2({n_strategies - 1}) = {chi2:.1f}, p = {p_value:.2e} "
+              f"| best mean rank: {best_strategy} ({mean_rank.min():.2f})")
+
+    if not rows:
+        print("   No cutoff produced a usable design; nothing written.\n")
+        return None
+
+    friedman_path = os.path.join(output_dir, "FRIEDMAN_OMNIBUS_STRATEGY_COMPARISON.csv")
+    pd.DataFrame(rows).to_csv(friedman_path, index=False)
+    print("   Reminder: no post-hoc pairwise test is reported - with five targets "
+          "none could reach significance.\n")
+    return friedman_path
 
 
 def build_ultimate_statistical_pipeline(base_dir):
@@ -265,8 +350,6 @@ def build_ultimate_statistical_pipeline(base_dir):
             #     constituent methods (a compound only needs to rank well in ONE method).
             #   - "Worst-rank fusion" (AND-like): combined score = MAXIMUM rank across the
             #     constituent methods (a compound must rank well in ALL methods).
-            # These replace the previous "Parallelism (union)" / "Synergy (intersection)"
-            # naming and the U / X placeholder symbols, per the terminology correction.
             # ------------------------------------------------------------------------------
             selections['Best-Rank Fusion (QSAR-MCS)'] = top_b_by_score(
                 np.minimum(rank_qsar, rank_mcs), B, ascending=True)
@@ -353,10 +436,14 @@ def build_ultimate_statistical_pipeline(base_dir):
     qc_path = os.path.join(output_dir, "QC_REPORT.csv")
     pd.DataFrame(qc_log).to_csv(qc_path, index=False)
 
+    friedman_path = run_friedman_omnibus(df_all, output_dir, cutoff_labels)
+
     print("=" * 60)
     print("PIPELINE COMPLETE")
     print(f"Raw data:           {single_target_path}")
     print(f"Summary statistics: {final_output_path}")
+    if friedman_path:
+        print(f"Omnibus test:       {friedman_path}")
     print(f"QC report:          {qc_path}  <-- check this first")
     print("=" * 60)
 
