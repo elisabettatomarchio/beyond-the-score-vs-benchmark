@@ -17,7 +17,7 @@ pandas==2.3.3
 # RDKit: required by process_pipeline.ipynb and MCS_analysis.py (fingerprints,
 # standardization, MCS, Butina clustering, BEDROC); optional but recommended in
 # align_results.py, where it enables SMILES canonicalization before merging.
-rdkit>=2024.03.1          # pin: python -c "import rdkit; print(rdkit.__version__)"
+rdkit>=2022.09.5          # pin: python -c "import rdkit; print(rdkit.__version__)"
 
 # --- ML-QSAR (process_pipeline.ipynb) ---------------------------------------
 scikit-learn==1.7.2
