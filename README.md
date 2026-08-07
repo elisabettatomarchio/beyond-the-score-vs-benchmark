@@ -41,7 +41,7 @@ The three scripts are meant to be run in sequence, one target at a time (AChE, E
 
 > **Note:** molecular docking itself (pose generation and CNN scoring via GNINA) is performed upstream of this repository; `align_results.py` expects its output as a per-target `Enrichment_<TARGET>.csv` file (SMILES, `CNN_VS` score, experimental activity label), which can be regenerated under training/docking/ via `xlsx_to_inputs.py`, or supplied by the user's own docking run.
 
-The Friedman test is applied to the number of recovered actives, with the five benchmark targets as blocks and the twenty strategies as treatments. It is reported as a global check that the strategies are not all equivalent: no pairwise post-hoc comparison is performed, since the smallest two-sided *p* value reachable by a signed-rank test over five paired targets is 0.0625.
+The Friedman test is applied to the number of recovered actives, with the five benchmark targets as blocks and the twenty screening strategies as treatments. It is used solely as an omnibus test of global differences among strategies; no pairwise post-hoc comparisons are performed, since with five paired targets the smallest attainable two-sided Wilcoxon signed-rank p-value is 0.0625. Statistical significance of the omnibus Friedman test is estimated using a Monte Carlo permutation procedure (100,000 permutations; random seed = 42), while the Friedman χ² statistic is retained as the test statistic.
 
 ## Training, Test and Virtual Screening Data
 
