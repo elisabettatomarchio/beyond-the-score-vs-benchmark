@@ -1,16 +1,34 @@
 # -*- coding: utf-8 -*-
+"""
+Benchmark aggregation and statistical/scaffold-diversity analysis for
+the fixed-budget virtual screening study.
 
-# Output:
-#  - SINGLE_TARGET_PERFORMANCE_3M.csv   (data per target/cutoff/strategy)
-# - FINAL_STATISTICAL_VALIDATION_3M.csv (mean ± SD for 5 target)
-#  - FRIEDMAN_OMNIBUS_3M.csv            (omnibus test across strategies, per cutoff)
-#  - QC_REPORT.csv                      (summary)
+The script:
+1. merges docking, MCS, and ML-QSAR predictions;
+2. evaluates the 20 predefined screening strategies;
+3. calculates fixed-budget recall, precision, and TP counts;
+4. performs a Monte Carlo permutation Friedman omnibus test;
+5. calculates Bemis-Murcko scaffold diversity metrics;
+6. calculates pairwise scaffold Jaccard similarity between strategies;
+7. performs QC checks on compound/active retention.
+
+The analysis is performed independently for the five benchmark targets
+and for 1%, 5%, and 10% screening budgets.
+"""
+# Outputs generated:
+#  - SINGLE_TARGET_PERFORMANCE_3M.csv      (Performance data per target/cutoff/strategy)
+#  - FINAL_STATISTICAL_VALIDATION_3M.csv    (Mean ± SD across targets)
+#  - FRIEDMAN_OMNIBUS_COMPARISON.csv       (Omnibus test across strategies, per cutoff)
+#  - QC_REPORT.csv                         (Summary QC diagnostics)
+#  - SCAFFOLD_METRICS_PER_STRATEGY.csv     (Scaffold diversity and SCR per target/cutoff/strategy)
+#  - TOP_SCAFFOLDS_BY_STRATEGY.csv         (Detailed breakdown of top scaffolds per selection)
+#  - SCAFFOLD_OVERLAP_STRATEGIES.csv       (Pairwise scaffold overlap/Jaccard similarity between strategies)
 
 import os
 import glob
 import pandas as pd
 import numpy as np
-
+from itertools import combinations
 
 EXPECTED_ACTIVES_PER_TARGET = 50      
 KEEP_STEREOCHEMISTRY = True           
@@ -20,43 +38,56 @@ PREFILTER_MULTIPLIER_3STAGE_2 = 2
 
 try:
     from rdkit import Chem
+    from rdkit.Chem.Scaffolds import MurckoScaffold
     RDKIT_AVAILABLE = True
-    print("RDKit detected: SMILES will be chemically canonicalized "
-          f"(stereochemistry {'kept' if KEEP_STEREOCHEMISTRY else 'removed'}).")
+    print("RDKit detected: SMILES canonicalization and Bemis-Murcko scaffold generation enabled.")
 except ImportError:
     RDKIT_AVAILABLE = False
-    print("RDKit not found. Falling back to plain string cleaning (strip only).")
+    print("RDKit not found. Scaffold analysis cannot be executed without RDKit.")
 
 try:
     from scipy.stats import friedmanchisquare
+    from numpy.random import default_rng
     SCIPY_AVAILABLE = True
 except ImportError:
     SCIPY_AVAILABLE = False
-    print("SciPy not found. The Friedman omnibus test will be skipped "
-          "(install with: pip install scipy).")
+    print("SciPy not found. The Friedman omnibus test will be skipped.")
 
 
 def canonicalize_smiles(smiles_str):
-    """Converts a SMILES string to its canonical form. Stereochemistry is kept
-    by default (see FIX 2) to avoid collapsing distinct stereoisomers."""
+    """Converts a SMILES string to its canonical form."""
     if not RDKIT_AVAILABLE or pd.isna(smiles_str):
         return str(smiles_str).strip()
     try:
         mol = Chem.MolFromSmiles(str(smiles_str).strip())
         if mol:
+            if not KEEP_STEREOCHEMISTRY:
+                Chem.RemoveStereochemistry(mol)
             return Chem.MolToSmiles(mol, isomericSmiles=KEEP_STEREOCHEMISTRY)
     except Exception:
         pass
     return str(smiles_str).strip()
 
 
+def get_bemis_murcko_scaffold(smiles_str):
+    """Generates the canonical Bemis-Murcko scaffold for a given SMILES string."""
+    if not RDKIT_AVAILABLE or pd.isna(smiles_str):
+        return None
+    try:
+        mol = Chem.MolFromSmiles(str(smiles_str).strip())
+        if mol is None:
+            return None
+        scaffold = MurckoScaffold.GetScaffoldForMol(mol)
+        if scaffold is None:
+            return None
+        return Chem.MolToSmiles(scaffold, isomericSmiles=False)
+    except Exception:
+        return None
+
+
 def dedupe_with_label_check(df, label_col, source_name, qc_log):
-    """[FIX 3] Removes duplicate SMILES, but if a group of duplicates has
-    inconsistent labels (the same canonical SMILES appearing as both active
-    and decoy) it is dropped entirely and logged in the QC log, instead of
-    arbitrarily keeping "the first occurrence"."""
+    """Removes duplicate SMILES, dropping inconsistent active/decoy labels entirely."""
     if label_col not in df.columns:
-        # File with no label column (e.g. MCS, QSAR)
         dup_mask = df.duplicated(subset=['smiles'], keep=False)
         if dup_mask.any():
             qc_log.append({
@@ -78,9 +109,7 @@ def dedupe_with_label_check(df, label_col, source_name, qc_log):
 
 
 def calculate_metrics(selected_mask, true_labels, actives_denominator):
-    """Recall/precision as percentages. The recall denominator is fixed
-    (EXPECTED_ACTIVES_PER_TARGET, validated by QC), not recomputed ad hoc for
-    each strategy."""
+    """Calculates recall and precision as percentages."""
     true_positives = int(np.sum(selected_mask & (true_labels == 1)))
     total_selected = int(np.sum(selected_mask))
     recall = (true_positives / actives_denominator) * 100 if actives_denominator > 0 else 0.0
@@ -88,18 +117,14 @@ def calculate_metrics(selected_mask, true_labels, actives_denominator):
     return recall, precision, true_positives, total_selected
 
 
-
 def top_b_by_score(score, B, ascending=False):
-    """Returns the (positional) indices of the best B elements of `score`.
-    Ties are broken deterministically by original array order (first
-    occurrence wins), for both ascending and descending selection."""
+    """Returns indices of the top B elements."""
     order = np.argsort(score if ascending else -score, kind='mergesort')
     return order[:B]
 
 
 def rank_min(score):
-    """Rank 1 = best, ties handled with the 'min' method (same behavior as
-    pandas .rank(method='min'), rewritten to work on numpy arrays)."""
+    """Rank 1 = best, ties handled using 'min' method."""
     order = np.argsort(-score, kind='mergesort')
     ranks = np.empty(len(score), dtype=float)
     sorted_scores = score[order]
@@ -117,45 +142,40 @@ def rank_min(score):
 
 
 def sequential_funnel(scores_stage_order, B, prefilter_sizes, N):
-    """ Sequential funnel: at each stage, the library (or the
-    survivors from the previous stage) is PRE-FILTERED based on the score of
-    the current stage, then the next stage RECOMPUTES its own ranking ONLY on
-    the survivors (not on the entire library).
-
-    scores_stage_order : list of score arrays (one per stage, all indexed
-                          0..N-1 over the full library)
-    prefilter_sizes     : pre-filter size for every stage EXCEPT the last
-                          (the last stage selects exactly B compounds)
-    """
+    """Sequential funnel pre-filtering and re-ranking."""
     survivors = np.arange(N)
     for stage_idx, score in enumerate(scores_stage_order[:-1]):
         P = min(len(survivors), max(B, prefilter_sizes[stage_idx]))
         stage_scores = score[survivors]
         top_local = top_b_by_score(stage_scores, P, ascending=False)
         survivors = survivors[top_local]
-    # Last stage: final re-ranking on the survivors, take exactly B
     last_score = scores_stage_order[-1][survivors]
     final_local = top_b_by_score(last_score, min(B, len(survivors)), ascending=False)
     return survivors[final_local]
 
 
+def friedman_permutation_test(pivot, n_perm=100000, seed=42):
+    """Monte Carlo permutation Friedman test."""
+    rng = default_rng(seed)
+    data = pivot.values
+    n_blocks, n_treatments = data.shape
+    chi2, _ = friedmanchisquare(*[data[:, j] for j in range(n_treatments)])
+    exceed = 0
+
+    for _ in range(n_perm):
+        perm = data.copy()
+        for i in range(n_blocks):
+            perm[i] = rng.permutation(perm[i])
+        stat, _ = friedmanchisquare(*[perm[:, j] for j in range(n_treatments)])
+        if stat >= chi2:
+            exceed += 1
+
+    p_mc = (exceed + 1) / (n_perm + 1)
+    return chi2, p_mc
+
+
 def run_friedman_omnibus(df_all, output_dir, cutoff_labels):
-    """Omnibus Friedman rank-sum test across the screening strategies, run
-    separately at every budget.
-
-    Blocks     = benchmark targets
-    Treatments = screening strategies
-    Response   = TP, the number of recovered actives (the fixed budget makes
-                 recall and precision monotonic transformations of TP, so the
-                 test is invariant to which of the three is used)
-
-    The test answers one question only: are the strategies all equivalent?
-    It is NOT a licence for pairwise claims. With a handful of targets the
-    chi-square approximation is asymptotic, and no post-hoc comparison is
-    attempted: the smallest two-sided p value reachable by a Wilcoxon
-    signed-rank test over n paired targets is 2^-(n-1), i.e. 0.0625 for n = 5,
-    so no pairwise contrast can ever reach alpha = 0.05 on this panel.
-    """
+    """Omnibus Friedman rank-sum test across screening strategies."""
     if not SCIPY_AVAILABLE:
         print("Friedman omnibus test skipped: SciPy is not installed.\n")
         return None
@@ -166,28 +186,22 @@ def run_friedman_omnibus(df_all, output_dir, cutoff_labels):
     for c_lbl in cutoff_labels:
         pivot = df_all[df_all['Cutoff'] == c_lbl].pivot_table(
             index='Target', columns='Strategy', values='TP')
-        # A target missing any strategy would silently unbalance the design
         n_incomplete = int(pivot.isna().any(axis=1).sum())
         pivot = pivot.dropna(axis=0, how='any')
         n_blocks, n_strategies = pivot.shape
 
         if n_blocks < 3 or n_strategies < 3:
-            print(f"   {c_lbl}: skipped (targets={n_blocks}, strategies={n_strategies}; "
-                  "the test needs at least 3 of each).")
             continue
 
-        chi2, p_value = friedmanchisquare(*[pivot[s].values for s in pivot.columns])
-
-        # rank 1 = largest TP count, tied strategies share the same rank
-        mean_rank = pivot.rank(axis=1, ascending=False, method='min').mean(axis=0)
+        chi2, p_value = friedman_permutation_test(pivot, n_perm=100000, seed=42)
+        mean_rank = pivot.rank(axis=1, ascending=False, method='average').mean(axis=0)
         best_strategy = mean_rank.idxmin()
 
         note = ""
         if n_incomplete:
-            note = f"{n_incomplete} target(s) dropped for incomplete strategy coverage; "
+            note = f"{n_incomplete} target(s) dropped for incomplete coverage; "
         if n_blocks < 10:
-            note += (f"asymptotic approximation with only {n_blocks} blocks - "
-                     "read as a global heterogeneity check, not as pairwise evidence")
+            note += "Monte Carlo permutation p-value (100000 permutations, seed=42)."
 
         rows.append({
             'Cutoff': c_lbl,
@@ -196,23 +210,66 @@ def run_friedman_omnibus(df_all, output_dir, cutoff_labels):
             'df': n_strategies - 1,
             'Chi2': round(float(chi2), 3),
             'p_value': float(p_value),
+            'Statistic': 'Friedman chi-square',
+            'Permutation_test': True,
+            'Permutations': 100000,
+            'Random_seed': 42,
             'Best_strategy_by_mean_rank': best_strategy,
             'Best_mean_rank': round(float(mean_rank.min()), 3),
             'Note': note.strip()
         })
 
-        print(f"   {c_lbl}: chi2({n_strategies - 1}) = {chi2:.1f}, p = {p_value:.2e} "
-              f"| best mean rank: {best_strategy} ({mean_rank.min():.2f})")
-
     if not rows:
-        print("   No cutoff produced a usable design; nothing written.\n")
         return None
 
     friedman_path = os.path.join(output_dir, "FRIEDMAN_OMNIBUS_STRATEGY_COMPARISON.csv")
     pd.DataFrame(rows).to_csv(friedman_path, index=False)
-    print("   Reminder: no post-hoc pairwise test is reported - with five targets "
-          "none could reach significance.\n")
     return friedman_path
+
+
+def analyze_scaffolds_for_selection(selected_df, target_label_col):
+    """Computes scaffold summary metrics and top scaffolds for a selected subset."""
+    scaffolds = selected_df['scaffold'].dropna()
+    n_selected = len(selected_df)
+    n_valid = len(scaffolds)
+
+    if n_valid == 0:
+        summary = {
+            'N_selected': n_selected,
+            'N_valid_scaffolds': 0,
+            'N_unique_scaffolds': 0,
+            'SCR': np.nan,
+            'Singleton_fraction': np.nan,
+            'Max_compounds_per_scaffold': np.nan
+        }
+        return summary, pd.DataFrame()
+
+    counts = scaffolds.value_counts()
+    n_unique = len(counts)
+    n_singletons = int((counts == 1).sum())
+
+    summary = {
+        'N_selected': n_selected,
+        'N_valid_scaffolds': n_valid,
+        'N_unique_scaffolds': n_unique,
+        'SCR': n_unique / n_selected if n_selected > 0 else np.nan,
+        'Singleton_fraction': n_singletons / n_unique if n_unique > 0 else np.nan,
+        'Max_compounds_per_scaffold': int(counts.max())
+    }
+
+    # Detailed top scaffolds aggregation
+    top_scaffolds = (
+        selected_df.groupby('scaffold')
+        .agg(
+            Total_Compounds=('smiles', 'count'),
+            Active_Compounds=(target_label_col, lambda x: int((x == 1).sum()))
+        )
+        .reset_index()
+        .sort_values(by=['Total_Compounds', 'Active_Compounds'], ascending=False)
+    )
+    top_scaffolds['Pct_of_Selected'] = (top_scaffolds['Total_Compounds'] / n_selected) * 100
+
+    return summary, top_scaffolds
 
 
 def build_ultimate_statistical_pipeline(base_dir):
@@ -230,7 +287,12 @@ def build_ultimate_statistical_pipeline(base_dir):
     all_target_results = []
     qc_log = []
 
-    print("Starting data merge and metric calculation (20 strategies, fixed budget)...\n")
+    # Scaffold output collections
+    scaffold_metrics_list = []
+    top_scaffolds_list = []
+    scaffold_overlap_list = []
+
+    print("Starting data merge, performance calculation, and scaffold analysis...\n")
 
     for dock_path in docking_files:
         target_name = os.path.basename(dock_path).replace("Enrichment_", "").replace(".csv", "")
@@ -246,13 +308,8 @@ def build_ultimate_statistical_pipeline(base_dir):
             possible_cols = [c for c in df_dock.columns if 'active' in c.lower() or 'label' in c.lower()]
             if len(possible_cols) == 1:
                 target_label_col = possible_cols[0]
-            elif len(possible_cols) > 1:
-                raise KeyError(
-                    f"Ambiguous label column in {os.path.basename(dock_path)}: "
-                    f"candidates found {possible_cols}. Specify explicitly which one to use."
-                )
             else:
-                raise KeyError(f"Missing the true-actives column in {os.path.basename(dock_path)}")
+                raise KeyError(f"Missing or ambiguous active column in {os.path.basename(dock_path)}")
 
         n_dock_raw = len(df_dock)
         n_actives_dock_raw = int((df_dock[target_label_col] == 1).sum())
@@ -287,10 +344,7 @@ def build_ultimate_statistical_pipeline(base_dir):
         df_qsar_clean = df_qsar[['smiles', 'Score_ML']].copy()
         df_qsar_clean = dedupe_with_label_check(df_qsar_clean, None, f"{target_name}/qsar", qc_log)
 
-        print(f"   Rows before merge -> Docking: {len(df_dock_clean)} | "
-              f"MCS: {len(df_mcs_clean)} | QSAR: {len(df_qsar_clean)}")
-
-        # 3. MERGE (inner join on SMILES) with explicit diagnostics 
+        # 3. MERGE
         df_merged = pd.merge(df_dock_clean, df_mcs_clean, on='smiles', how='inner')
         df_merged = pd.merge(df_merged, df_qsar_clean, on='smiles', how='inner')
 
@@ -304,14 +358,6 @@ def build_ultimate_statistical_pipeline(base_dir):
         molecules_lost = n_dock_raw - N_total
         actives_lost = n_actives_dock_raw - n_actives_merged
 
-        print(f"   Merge completed: {N_total} aligned molecules "
-              f"({molecules_lost} lost relative to the original docking file).")
-        print(f"   Actives in the final merge: {n_actives_merged} "
-              f"(expected: {EXPECTED_ACTIVES_PER_TARGET}, lost in merge: {actives_lost}).")
-
-        if n_actives_merged != EXPECTED_ACTIVES_PER_TARGET:
-            print(f"   *** QC FAILED for {target_name}: {n_actives_merged} actives "
-                  f"instead of {EXPECTED_ACTIVES_PER_TARGET}. See QC_REPORT.csv. ***")
         qc_log.append({
             'source': target_name, 'issue': 'merge_summary',
             'n_dock_raw': n_dock_raw, 'n_actives_dock_raw': n_actives_dock_raw,
@@ -321,8 +367,13 @@ def build_ultimate_statistical_pipeline(base_dir):
         })
 
         df_merged = df_merged.reset_index(drop=True)
+
+        # Pre-calculate Bemis-Murcko scaffolds for all merged compounds
+        if RDKIT_AVAILABLE:
+            df_merged['scaffold'] = df_merged['smiles'].apply(get_bemis_murcko_scaffold)
+
         labels = df_merged[target_label_col].values.astype(int)
-        actives_denominator = n_actives_merged  # real, verified recall denominator
+        actives_denominator = n_actives_merged
 
         score_qsar = df_merged['Score_ML'].values.astype(float)
         score_mcs = df_merged['Score_MCS'].values.astype(float)
@@ -332,9 +383,9 @@ def build_ultimate_statistical_pipeline(base_dir):
         rank_mcs = rank_min(score_mcs)
         rank_dock = rank_min(score_dock)
 
-        # 4. Metrics for the 3 cutoffs x 20 strategies, all at fixed budget B 
+        # 4. Metrics for 3 cutoffs x 20 strategies
         for c_val, c_lbl in zip(cutoffs, cutoff_labels):
-            B = max(1, int(N_total * c_val))  # k = floor(f*N)
+            B = max(1, int(N_total * c_val))
 
             selections = {}
 
@@ -343,14 +394,7 @@ def build_ultimate_statistical_pipeline(base_dir):
             selections['Single MCS'] = top_b_by_score(score_mcs, B)
             selections['Single Docking'] = top_b_by_score(score_dock, B)
 
-            # --- Rank-fusion strategies -------------------------------------------------
-            # Because every strategy must return exactly B compounds, these are rank-fusion operators that emulate an OR-like
-            # or AND-like combination while keeping the selected-set size fixed.
-            #   - "Best-rank fusion" (OR-like): combined score = MINIMUM rank across the
-            #     constituent methods (a compound only needs to rank well in ONE method).
-            #   - "Worst-rank fusion" (AND-like): combined score = MAXIMUM rank across the
-            #     constituent methods (a compound must rank well in ALL methods).
-            # ------------------------------------------------------------------------------
+            # --- Rank-fusion strategies ---
             selections['Best-Rank Fusion (QSAR-MCS)'] = top_b_by_score(
                 np.minimum(rank_qsar, rank_mcs), B, ascending=True)
             selections['Best-Rank Fusion (3-Method)'] = top_b_by_score(
@@ -361,11 +405,11 @@ def build_ultimate_statistical_pipeline(base_dir):
             selections['Worst-Rank Fusion (3-Method)'] = top_b_by_score(
                 np.maximum(np.maximum(rank_qsar, rank_mcs), rank_dock), B, ascending=True)
 
-            # --- Consensus: average of ranks ---
+            # --- Consensus ---
             mean_rank = (rank_qsar + rank_mcs + rank_dock) / 3.0
             selections['Consensus (Mean Rank 3M)'] = top_b_by_score(mean_rank, B, ascending=True)
 
-            # --- Two-stage sequential funnels: true re-ranking on survivors  ---
+            # --- Two-stage funnels ---
             P2 = PREFILTER_MULTIPLIER_2STAGE * B
             two_stage_pairs = [
                 ('Sequential (QSAR -> MCS)', score_qsar, score_mcs),
@@ -379,7 +423,7 @@ def build_ultimate_statistical_pipeline(base_dir):
                 selections[name] = sequential_funnel(
                     [score_a, score_b], B, prefilter_sizes=[P2], N=N_total)
 
-            # --- Three-stage sequential funnels: true cascading re-ranking  ---
+            # --- Three-stage funnels ---
             P3_1 = PREFILTER_MULTIPLIER_3STAGE_1 * B
             P3_2 = PREFILTER_MULTIPLIER_3STAGE_2 * B
             three_stage_triples = [
@@ -394,27 +438,76 @@ def build_ultimate_statistical_pipeline(base_dir):
                 selections[name] = sequential_funnel(
                     [score_a, score_b, score_c], B, prefilter_sizes=[P3_1, P3_2], N=N_total)
 
-            # 5. Metric calculation
+            # Strategy scaffold tracking dictionary for cross-comparison
+            strategy_scaffold_sets = {}
+
+            # 5. Performance and Scaffold Metric Calculation
             for strat_name, idx in selections.items():
                 mask = np.zeros(N_total, dtype=bool)
                 mask[idx] = True
                 rec, prec, tp, n_sel_actual = calculate_metrics(mask, labels, actives_denominator)
+
                 all_target_results.append({
                     'Target': target_name,
                     'Cutoff': c_lbl,
                     'Strategy': strat_name,
                     'Budget_B': B,
-                    'Selected_N': n_sel_actual,   # for transparency: should equal B
+                    'Selected_N': n_sel_actual,
                     'TP': tp,
                     'Recall': rec,
                     'Precision': prec
                 })
-        print(f"Metrics calculated for {target_name}\n")
+
+                # Scaffold Analysis for current strategy selection
+                if RDKIT_AVAILABLE:
+                    selected_df = df_merged.iloc[idx].copy()
+                    scaf_summary, top_scafs = analyze_scaffolds_for_selection(selected_df, target_label_col)
+
+                    scaf_summary.update({
+                        'Target': target_name,
+                        'Cutoff': c_lbl,
+                        'Budget_B': B,
+                        'Strategy': strat_name
+                    })
+                    scaffold_metrics_list.append(scaf_summary)
+
+                    if not top_scafs.empty:
+                        top_scafs['Target'] = target_name
+                        top_scafs['Cutoff'] = c_lbl
+                        top_scafs['Budget_B'] = B
+                        top_scafs['Strategy'] = strat_name
+                        top_scaffolds_list.append(top_scafs)
+
+                        strategy_scaffold_sets[strat_name] = set(top_scafs['scaffold'].dropna().tolist())
+                    else:
+                        strategy_scaffold_sets[strat_name] = set()
+
+            # Pairwise Scaffold Overlap Analysis across Strategies for this Target and Cutoff
+            if RDKIT_AVAILABLE and len(strategy_scaffold_sets) > 1:
+                for strat_a, strat_b in combinations(strategy_scaffold_sets.keys(), 2):
+                    set_a = strategy_scaffold_sets[strat_a]
+                    set_b = strategy_scaffold_sets[strat_b]
+
+                    intersection = len(set_a.intersection(set_b))
+                    union = len(set_a.union(set_b))
+                    jaccard = (intersection / union) if union > 0 else 0.0
+
+                    scaffold_overlap_list.append({
+                        'Target': target_name,
+                        'Cutoff': c_lbl,
+                        'Budget_B': B,
+                        'Strategy_A': strat_a,
+                        'Strategy_B': strat_b,
+                        'Shared_Scaffolds': intersection,
+                        'Union_Scaffolds': union,
+                        'Jaccard_Scaffold_Similarity': round(jaccard, 4)
+                    })
 
     if not all_target_results:
-        print("Error: no data collected. Check the file/path naming.")
+        print("Error: no data collected. Check input paths.")
         return None
 
+    # Export Directories and Performance CSVs
     df_all = pd.DataFrame(all_target_results)
     output_dir = os.path.join(base_dir, "GLOBAL_STUDY_OUTPUT")
     os.makedirs(output_dir, exist_ok=True)
@@ -438,23 +531,40 @@ def build_ultimate_statistical_pipeline(base_dir):
 
     friedman_path = run_friedman_omnibus(df_all, output_dir, cutoff_labels)
 
-    print("=" * 60)
-    print("PIPELINE COMPLETE")
-    print(f"Raw data:           {single_target_path}")
-    print(f"Summary statistics: {final_output_path}")
-    if friedman_path:
-        print(f"Omnibus test:       {friedman_path}")
-    print(f"QC report:          {qc_path}  <-- check this first")
-    print("=" * 60)
+    # Export Scaffold Analysis CSVs
+    scaf_metrics_path, top_scaf_path, scaf_overlap_path = None, None, None
+    if RDKIT_AVAILABLE:
+        if scaffold_metrics_list:
+            df_scaf_metrics = pd.DataFrame(scaffold_metrics_list)
+            scaf_metrics_path = os.path.join(output_dir, "SCAFFOLD_METRICS_PER_STRATEGY.csv")
+            df_scaf_metrics.to_csv(scaf_metrics_path, index=False)
 
-    failed_qc = [q for q in qc_log if q.get('issue') == 'merge_summary' and not q['qc_pass_50_actives']]
-    if failed_qc:
-        print(f"WARNING: {len(failed_qc)} target(s) do not have exactly "
-              f"{EXPECTED_ACTIVES_PER_TARGET} actives after the merge. See QC_REPORT for details.")
+        if top_scaffolds_list:
+            df_top_scaffolds = pd.concat(top_scaffolds_list, ignore_index=True)
+            top_scaf_path = os.path.join(output_dir, "TOP_SCAFFOLDS_BY_STRATEGY.csv")
+            df_top_scaffolds.to_csv(top_scaf_path, index=False)
+
+        if scaffold_overlap_list:
+            df_scaf_overlap = pd.DataFrame(scaffold_overlap_list)
+            scaf_overlap_path = os.path.join(output_dir, "SCAFFOLD_OVERLAP_STRATEGIES.csv")
+            df_scaf_overlap.to_csv(scaf_overlap_path, index=False)
+
+    print("=" * 60)
+    print("PIPELINE & SCAFFOLD ANALYSIS COMPLETE")
+    print(f"Performance raw data:      {single_target_path}")
+    print(f"Summary statistics:       {final_output_path}")
+    if friedman_path:
+        print(f"Omnibus test:             {friedman_path}")
+    print(f"QC report:                {qc_path}")
+    if scaf_metrics_path:
+        print(f"Scaffold Metrics CSV:     {scaf_metrics_path}")
+        print(f"Top Scaffolds Breakdown:  {top_scaf_path}")
+        print(f"Scaffold Overlap Matrix:  {scaf_overlap_path}")
+    print("=" * 60)
 
     return final_output_path
 
 
 if __name__ == "__main__":
-    project_folder = "/Users/your_path"  # update with your folder
+    project_folder = "/path/to/project" #uptade
     build_ultimate_statistical_pipeline(project_folder)
