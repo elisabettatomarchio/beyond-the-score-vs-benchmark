@@ -1,6 +1,13 @@
 # Beyond the Score: Fixed-Budget Benchmarking of Virtual Screening Integration Strategies for Decision-Centric Drug Discovery
 
-Elisabetta Grazia Tomarchio, Rocco Buccheri, Antonio Rescifina
+Elisabetta Grazia Tomarchio<sup>1,2</sup>, Rocco Buccheri<sup>1</sup> and Antonio Rescifina<sup>1,*</sup>
+
+<sup>1</sup>	Department of Drug and Health Sciences, University of Catania, Viale A. Doria 6, 95125 Catania, Italy; elis-abetta.tomarchio@phd.unict.it (E.G.T.); rocco.buccheri@unict.it (R.B.);
+
+<sup>2</sup>	Department of Biomedical and Biotechnological Sciences, University of Catania, Via Santa Sofia 97, 95123 Catania, Italy;
+
+<sup>*</sup>	Correspondence: antonio.rescifina@unict.it
+
 
 Code and data for benchmarking virtual screening integration strategies, submitted to the *International Journal of Molecular Sciences (IJMS)*, Special Issue *"Beyond Docking Scores: Decision-Centric Computer-Aided Drug Discovery"*.
 
