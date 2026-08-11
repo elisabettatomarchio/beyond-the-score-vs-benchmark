@@ -45,6 +45,11 @@ The three scripts are meant to be run in sequence, one target at a time (AChE, E
 
 > **Note:** molecular docking itself (pose generation and CNN scoring via GNINA) is performed upstream of this repository; `align_results.py` expects its output as a per-target `Enrichment_<TARGET>.csv` file (SMILES, `CNN_VS` score, experimental activity label), which can be regenerated under training/docking/ via `xlsx_to_inputs.py`, or supplied by the user's own docking run.
 
+In addition to the main pipeline, two standalone scripts are provided for deeper quality control, scaffold diversity, and robustness evaluation:
+
+- **`decoy_property_qc.py`** — performs decoy quality-control analysis by comparing physicochemical properties and scaffold diversity of VS actives and decoys, assessing scaffold diversity and novelty of the top 50 VS actives relative to training-set actives, and evaluating ECFP4 nearest-neighbor similarity to training-set actives and inactives.
+- **`scaffold_diversity.py`** — performs similarity-stratified robustness analysis by assigning the 50 VS actives for each target to Low/Mid/High ECFP4 nearest-neighbor similarity terciles relative to training-set actives, evaluating fixed-budget retrieval by Single Docking, Single MCS, and Single ML-QSAR at 1%, 5%, and 10% cutoffs, pooling results across targets, and comparing Low- vs High-similarity recall using Fisher’s exact test.
+
 The Friedman test is applied to the number of recovered actives, with the five benchmark targets as blocks and the twenty screening strategies as treatments. It is used solely as an omnibus test of global differences among strategies; no pairwise post-hoc comparisons are performed, since with five paired targets the smallest attainable two-sided Wilcoxon signed-rank p-value is 0.0625. Statistical significance of the omnibus Friedman test is estimated using a Monte Carlo permutation procedure (100,000 permutations; random seed = 42), while the Friedman χ² statistic is retained as the test statistic.
 
 ## Training, Test and Virtual Screening Data
