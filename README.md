@@ -4,6 +4,8 @@ Elisabetta Grazia Tomarchio, Rocco Buccheri, Antonio Rescifina
 
 Code and data for benchmarking virtual screening integration strategies, submitted to the *International Journal of Molecular Sciences (IJMS)*, Special Issue *"Beyond Docking Scores: Decision-Centric Computer-Aided Drug Discovery"*.
 
+![Graphical Abstract](Graphical_Abstract.png)
+
 ## Overview
 
 This repository contains the reproducible computational analysis pipeline used to benchmark twenty virtual screening (VS) integration strategies, combining three complementary methods — molecular docking, maximum common substructure (MCS) similarity, and a machine-learning QSAR (ML-QSAR) classifier — across five pharmacologically diverse protein targets (AChE, EGFR, hERG, HIV1-P, PPARγ).
